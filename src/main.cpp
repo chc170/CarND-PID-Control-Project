@@ -35,21 +35,21 @@ int main()
 
   PID pid_steer, pid_speed;
   // TODO: Initialize the pid variable.
-  pid_steer.Init(0.2, 0.004, 3.);
-  //pid_speed.Init(0.01, 0.001, 2);
-  pid_speed.Init(0.2, 0.001, 2);
+  pid_steer.Init(0.2, 0.006, 3.);
+  pid_speed.Init(0.006, 0.00001, 0.0001);
 
+  bool use_twiddle = false;
+  std::deque<double> angle_history;
   double twiddle_tol = 0.0002;
-  int twiddle_steps = 1000;
-  int twiddle_num = 0;
   double twiddle_best = std::numeric_limits<double>::max();
   double twiddle_err = 0;
-  //double twiddle_p[] = { 0.001, 0.0001, 1 };
-  double twiddle_p[] = { 0.01, 0.00001, 0.1 };
+  double twiddle_p[] = { 0.0002, 0.00001, 0.0001 };
+  int twiddle_steps = 1000;
+  int twiddle_num = 0;
   int twiddle_try = 0;
   int twiddle_idx = 0;
 
-  h.onMessage([&pid_steer, &pid_speed,
+  h.onMessage([&pid_steer, &pid_speed, &angle_history, &use_twiddle,
   &twiddle_tol, &twiddle_steps, &twiddle_num, &twiddle_best,
   &twiddle_try, &twiddle_err, &twiddle_p, &twiddle_idx
   ](uWS::WebSocket<uWS::SERVER> ws, char *data, size_t length, uWS::OpCode opCode) {
@@ -75,7 +75,7 @@ int main()
           /**
            * twiddle - throttle
            */
-          if (twiddle_num == 0) {
+          if (use_twiddle && twiddle_num == 0) {
             if (twiddle_idx == 0) { pid_speed.Kp += twiddle_p[0]; }
             if (twiddle_idx == 1) { pid_speed.Ki += twiddle_p[1]; }
             if (twiddle_idx == 2) { pid_speed.Kd += twiddle_p[2]; }
@@ -92,80 +92,113 @@ int main()
           * NOTE: Feel free to play around with the throttle and speed. Maybe use
           * another PID controller to control the speed!
           */
+          // Steer
           pid_steer.UpdateError(cte);
           steer_value = pid_steer.TotalError();
+          // use sigmoid to limit the value between 1 and -1
           steer_value = 2 / (1 + exp(-steer_value)) -1;
 
-          target_speed = 100 - fabs(angle) * 10;
+          // Speed
+          angle_history.push_back(angle);
+          if (angle_history.size() > 10)
+              angle_history.pop_front();
+
+          // smooth out the angle
+          double avg_angle = angle;
+          if (angle_history.size() > 0) {
+              avg_angle = std::accumulate(
+                  angle_history.begin(),
+                  angle_history.end(), 0.0) /
+                  angle_history.size();
+          }
+
+          // Target speed: faster when angle is small
+          target_speed = 90 - fabs(avg_angle) * 10;
           target_speed = fmax(target_speed, 15);
 
           speed_cte = speed - target_speed;
           pid_speed.UpdateError(speed_cte);
-          throttle = pid_speed.TotalError();
-          throttle = fmax(throttle, 0.3);
-          //throttle = 2 / (1 + exp(-throttle)) -1;
+          throttle = 0.5 + pid_speed.TotalError();
+
+          if (twiddle_num % 10 == 0) {
+            //std::cout << " Angle: " << avg_angle
+            //          << " Taget: " << target_speed
+            //          << " Speed: " << speed
+            //          << " Throttle: " << throttle
+            //          << std::endl;
+          }
 
           /**
            * Twiddle - throttle
+           * It is not easy to use twiddle here for several reasons
+           * 1. When the speed is too fast, the car run out of the
+           *    track. We need a better way to detect that and reset
+           *    the simulator.
+           * 2. The steering angle should react differently when
+           *    speed is different, so using two PID controller
+           *    separately is really difficult to tweak the params.
            */
-          twiddle_err += speed_cte * speed_cte;
-          if ((twiddle_num % 100) == 0) std::cout << twiddle_err / twiddle_num << std::endl;
-          if (twiddle_num == twiddle_steps) {
-            twiddle_err /= twiddle_steps;
-            if (twiddle_err < twiddle_best) {
-              twiddle_best = twiddle_err;
-              twiddle_p[twiddle_idx] *= 1.1;
-              twiddle_idx += 1;
-              twiddle_idx %= 3;
-            }
-            else {
-              if (twiddle_try == 0) {
-                if (twiddle_idx == 0) { pid_speed.Kp -= 3*twiddle_p[0]; }
-                if (twiddle_idx == 1) { pid_speed.Ki -= 3*twiddle_p[1]; }
-                if (twiddle_idx == 2) { pid_speed.Kd -= 3*twiddle_p[2]; }
-                twiddle_try = 1;
+          if (use_twiddle) {
+            twiddle_err += speed_cte * speed_cte;
+            if ((twiddle_num % 100) == 0) std::cout << twiddle_err / twiddle_num << std::endl;
+            if (twiddle_num == twiddle_steps) {
+              twiddle_err /= twiddle_steps;
+              if (twiddle_err < twiddle_best) {
+                twiddle_best = twiddle_err;
+                twiddle_p[twiddle_idx] *= 1.1;
+                twiddle_idx += 1;
+                twiddle_idx%= 3;
               }
               else {
-                if (twiddle_idx == 0) { pid_speed.Kp += twiddle_p[0]; twiddle_p[0] *= 0.9; }
-                if (twiddle_idx == 1) { pid_speed.Ki += twiddle_p[1]; twiddle_p[1] *= 0.9; }
-                if (twiddle_idx == 2) { pid_speed.Kd += twiddle_p[2]; twiddle_p[2] *= 0.9; }
-                twiddle_try = 0;
-                twiddle_idx += 1;
-                twiddle_idx %= 3;
+                if (twiddle_try == 0) {
+                  if (twiddle_idx == 0) { pid_speed.Kp -= 3*twiddle_p[0]; }
+                  if (twiddle_idx == 1) { pid_speed.Ki -= 3*twiddle_p[1]; }
+                  if (twiddle_idx == 2) { pid_speed.Kd -= 3*twiddle_p[2]; }
+                  twiddle_try = 1;
+                }
+                else {
+                  if (twiddle_idx == 0) { pid_speed.Kp += twiddle_p[0]; twiddle_p[0] *= 0.9; }
+                  if (twiddle_idx == 1) { pid_speed.Ki += twiddle_p[1]; twiddle_p[1] *= 0.9; }
+                  if (twiddle_idx == 2) { pid_speed.Kd += twiddle_p[2]; twiddle_p[2] *= 0.9; }
+                  twiddle_try = 0;
+                  twiddle_idx += 1;
+                  twiddle_idx %= 3;
+                }
               }
-            }
 
-            if (twiddle_idx == 0) {
-              // check tolerance
-              double sum = twiddle_p[0] + twiddle_p[1] + twiddle_p[2];
-              std::cout << "Delta: " << twiddle_p[0]
-                        << " , " << twiddle_p[1]
-                        << " , " << twiddle_p[2] << std::endl;
-              std::cout << "Solution: "
-                        << " Kp: " << pid_speed.Kp
-                        << " Ki: " << pid_speed.Ki
-                        << " Kd: " << pid_speed.Kd
-                        << std::endl;
+              if (twiddle_idx == 0) {
+                // check tolerance
+                double sum = twiddle_p[0] + twiddle_p[1] + twiddle_p[2];
+                std::cout << "Delta: " << twiddle_p[0]
+                          << " , " << twiddle_p[1]
+                          << " , " << twiddle_p[2] << std::endl;
+                std::cout << "Solution: "
+                          << " Kp: " << pid_speed.Kp
+                          << " Ki: " << pid_speed.Ki
+                          << " Kd: " << pid_speed.Kd
+                          << std::endl;
+                // reset
+                std::string msg = "42[\"reset\", {}]";
+                //std::cout << msg << std::endl;
+                ws.send(msg.data(), msg.length(), uWS::OpCode::TEXT);
+              }
+              twiddle_num = 0;
             }
-            twiddle_num = 0;
+            else {
+              twiddle_num += 1;
+            }
           }
-          else {
-            twiddle_num += 1;
-          }
-
 
           // DEBUG
-          //std::cout << "CTE: " << cte << " Steering Value: " << steer_value << std::endl;
-          //std::cout << "Angle: " << angle << " Speed: " << speed << " Target: " << target_speed << std::endl;
-          //std::cout << "Throttle: " << throttle << std::endl;
-
-          throttle = 0.5;
+          std::cout << "CTE: " << cte << " Steering Value: " << steer_value << std::endl;
+          std::cout << "Angle: " << angle << " Speed: " << speed << " Target: " << target_speed << std::endl;
+          std::cout << "Throttle: " << throttle << std::endl;
 
           json msgJson;
           msgJson["steering_angle"] = steer_value;
           msgJson["throttle"] = throttle;
           auto msg = "42[\"steer\"," + msgJson.dump() + "]";
-          //std::cout << msg << std::endl;
+          std::cout << msg << std::endl;
           ws.send(msg.data(), msg.length(), uWS::OpCode::TEXT);
         }
       } else {
