@@ -35,15 +35,18 @@ int main()
 
   PID pid_steer, pid_speed;
   // TODO: Initialize the pid variable.
-  pid_steer.Init(0.2, 0.006, 3.);
+  pid_steer.Init(0.212221, 0.00974437, 3.01065);
   pid_speed.Init(0.006, 0.00001, 0.0001);
+
 
   bool use_twiddle = false;
   std::deque<double> angle_history;
   double twiddle_tol = 0.0002;
   double twiddle_best = std::numeric_limits<double>::max();
   double twiddle_err = 0;
-  double twiddle_p[] = { 0.0002, 0.00001, 0.0001 };
+  //double twiddle_p[] = { 0.0002, 0.00001, 0.0001 };
+  //Delta: 0.00473514 , 0.000864536 , 0.00707348
+  double twiddle_p[] = {0.01, 0.001, 0.01};
   int twiddle_steps = 1000;
   int twiddle_num = 0;
   int twiddle_try = 0;
@@ -68,7 +71,7 @@ int main()
           double speed = std::stod(j[1]["speed"].get<std::string>());
           double angle = std::stod(j[1]["steering_angle"].get<std::string>());
           double steer_value;
-          double speed_cte;
+          double speed_err;
           double target_speed;
           double throttle;
 
@@ -76,13 +79,13 @@ int main()
            * twiddle - throttle
            */
           if (use_twiddle && twiddle_num == 0) {
-            if (twiddle_idx == 0) { pid_speed.Kp += twiddle_p[0]; }
-            if (twiddle_idx == 1) { pid_speed.Ki += twiddle_p[1]; }
-            if (twiddle_idx == 2) { pid_speed.Kd += twiddle_p[2]; }
+            if (twiddle_idx == 0) { pid_steer.Kp += twiddle_p[0]; }
+            if (twiddle_idx == 1) { pid_steer.Ki += twiddle_p[1]; }
+            if (twiddle_idx == 2) { pid_steer.Kd += twiddle_p[2]; }
             std::cout << " = " << twiddle_idx << "  "
-                      << " Kp: " << pid_speed.Kp
-                      << " Ki: " << pid_speed.Ki
-                      << " Kd: " << pid_speed.Kd
+                      << " Kp: " << pid_steer.Kp
+                      << " Ki: " << pid_steer.Ki
+                      << " Kd: " << pid_steer.Kd
                       << std::endl;
           }
 
@@ -113,11 +116,11 @@ int main()
           }
 
           // Target speed: faster when angle is small
-          target_speed = 90 - fabs(avg_angle) * 10;
-          target_speed = fmax(target_speed, 15);
+          //target_speed = 90 - fabs(avg_angle) * 10;
+          target_speed = 50;
 
-          speed_cte = speed - target_speed;
-          pid_speed.UpdateError(speed_cte);
+          speed_err = speed - target_speed;
+          pid_speed.UpdateError(speed_err);
           throttle = 0.5 + pid_speed.TotalError();
 
           if (twiddle_num % 10 == 0) {
@@ -139,7 +142,7 @@ int main()
            *    separately is really difficult to tweak the params.
            */
           if (use_twiddle) {
-            twiddle_err += speed_cte * speed_cte;
+            twiddle_err += cte * cte;
             if ((twiddle_num % 100) == 0) std::cout << twiddle_err / twiddle_num << std::endl;
             if (twiddle_num == twiddle_steps) {
               twiddle_err /= twiddle_steps;
@@ -151,15 +154,15 @@ int main()
               }
               else {
                 if (twiddle_try == 0) {
-                  if (twiddle_idx == 0) { pid_speed.Kp -= 3*twiddle_p[0]; }
-                  if (twiddle_idx == 1) { pid_speed.Ki -= 3*twiddle_p[1]; }
-                  if (twiddle_idx == 2) { pid_speed.Kd -= 3*twiddle_p[2]; }
+                  if (twiddle_idx == 0) { pid_steer.Kp -= 3*twiddle_p[0]; }
+                  if (twiddle_idx == 1) { pid_steer.Ki -= 3*twiddle_p[1]; }
+                  if (twiddle_idx == 2) { pid_steer.Kd -= 3*twiddle_p[2]; }
                   twiddle_try = 1;
                 }
                 else {
-                  if (twiddle_idx == 0) { pid_speed.Kp += twiddle_p[0]; twiddle_p[0] *= 0.9; }
-                  if (twiddle_idx == 1) { pid_speed.Ki += twiddle_p[1]; twiddle_p[1] *= 0.9; }
-                  if (twiddle_idx == 2) { pid_speed.Kd += twiddle_p[2]; twiddle_p[2] *= 0.9; }
+                  if (twiddle_idx == 0) { pid_steer.Kp += twiddle_p[0]; twiddle_p[0] *= 0.9; }
+                  if (twiddle_idx == 1) { pid_steer.Ki += twiddle_p[1]; twiddle_p[1] *= 0.9; }
+                  if (twiddle_idx == 2) { pid_steer.Kd += twiddle_p[2]; twiddle_p[2] *= 0.9; }
                   twiddle_try = 0;
                   twiddle_idx += 1;
                   twiddle_idx %= 3;
@@ -173,9 +176,9 @@ int main()
                           << " , " << twiddle_p[1]
                           << " , " << twiddle_p[2] << std::endl;
                 std::cout << "Solution: "
-                          << " Kp: " << pid_speed.Kp
-                          << " Ki: " << pid_speed.Ki
-                          << " Kd: " << pid_speed.Kd
+                          << " Kp: " << pid_steer.Kp
+                          << " Ki: " << pid_steer.Ki
+                          << " Kd: " << pid_steer.Kd
                           << std::endl;
                 // reset
                 std::string msg = "42[\"reset\", {}]";
@@ -190,9 +193,9 @@ int main()
           }
 
           // DEBUG
-          std::cout << "CTE: " << cte << " Steering Value: " << steer_value << std::endl;
-          std::cout << "Angle: " << angle << " Speed: " << speed << " Target: " << target_speed << std::endl;
-          std::cout << "Throttle: " << throttle << std::endl;
+          //std::cout << "CTE: " << cte << " Steering Value: " << steer_value << std::endl;
+          //std::cout << "Angle: " << angle << " Speed: " << speed << " Target: " << target_speed << std::endl;
+          //std::cout << "Throttle: " << throttle << std::endl;
 
           json msgJson;
           msgJson["steering_angle"] = steer_value;
