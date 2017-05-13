@@ -2,6 +2,28 @@
 Self-Driving Car Engineer Nanodegree Program
 
 ---
+## Reflection
+
+* Proportional gain
+Proportional gain determines how fast we want to pull back the vehicle towards expected position. High proportional gain results in large change in output and leads to unstable system. Using proportional gain alone will cause overshooting problem.
+
+* Derivative gain
+Derivative gain is calculated by the change in the errors (slope of the error). When the error is descreasing, it will contribute a negative value to mitigate the overshooting problem. When derivative gain is too high, the proportional gain will be cancelled to much and slow down the process.
+
+* Integral gain
+Integral gain is to compensate the small bias that proportional gain can not handle. When integral gain is too large, it will amplify the overshooting problem.
+
+It doesn't seem to be easy to observe the need of integral gain in the simulator.
+
+* Twiddle
+Twiddle fine-tunes the three parameters well, but we have to start with a 'good enough' solution. Otherwise, the vehicle will go off the road and out of control.
+
+* PID for throttle
+I tried to assign different speed depend on different steering angles. It didn't work well because the changing speed affects the steering PID controller. The fixed PID gains don't seem to do their job well. When the speed go faster, the vehicle tends to oscillate. So, I decided to use fixed speed in the whole simulation.
+
+Using PID controller for adjusting throttle don't seem to be useful in the simulator (but I still used it), because the whole track is almost flat. I can simply set the throttle to a fixed number to keep the speed constant.
+
+---
 
 ## Dependencies
 
@@ -25,7 +47,7 @@ Self-Driving Car Engineer Nanodegree Program
 1. Clone this repo.
 2. Make a build directory: `mkdir build && cd build`
 3. Compile: `cmake .. && make`
-4. Run it: `./pid`. 
+4. Run it: `./pid`.
 
 ## Editor Settings
 

@@ -38,15 +38,16 @@ int main()
   pid_steer.Init(0.212221, 0.00974437, 3.01065);
   pid_speed.Init(0.006, 0.00001, 0.0001);
 
+  std::deque<double> angle_history;
 
   bool use_twiddle = false;
-  std::deque<double> angle_history;
   double twiddle_tol = 0.0002;
   double twiddle_best = std::numeric_limits<double>::max();
   double twiddle_err = 0;
   //double twiddle_p[] = { 0.0002, 0.00001, 0.0001 };
   //Delta: 0.00473514 , 0.000864536 , 0.00707348
   double twiddle_p[] = {0.01, 0.001, 0.01};
+
   int twiddle_steps = 1000;
   int twiddle_num = 0;
   int twiddle_try = 0;
@@ -76,7 +77,7 @@ int main()
           double throttle;
 
           /**
-           * twiddle - throttle
+           * Twiddle
            */
           if (use_twiddle && twiddle_num == 0) {
             if (twiddle_idx == 0) { pid_steer.Kp += twiddle_p[0]; }
@@ -102,11 +103,11 @@ int main()
           steer_value = 2 / (1 + exp(-steer_value)) -1;
 
           // Speed
+          // smooth out the angle
           angle_history.push_back(angle);
           if (angle_history.size() > 10)
-              angle_history.pop_front();
+              angle_history.pop_front()
 
-          // smooth out the angle
           double avg_angle = angle;
           if (angle_history.size() > 0) {
               avg_angle = std::accumulate(
@@ -115,7 +116,7 @@ int main()
                   angle_history.size();
           }
 
-          // Target speed: faster when angle is small
+          // Target speed
           //target_speed = 90 - fabs(avg_angle) * 10;
           target_speed = 50;
 
@@ -123,23 +124,8 @@ int main()
           pid_speed.UpdateError(speed_err);
           throttle = 0.5 + pid_speed.TotalError();
 
-          if (twiddle_num % 10 == 0) {
-            //std::cout << " Angle: " << avg_angle
-            //          << " Taget: " << target_speed
-            //          << " Speed: " << speed
-            //          << " Throttle: " << throttle
-            //          << std::endl;
-          }
-
           /**
-           * Twiddle - throttle
-           * It is not easy to use twiddle here for several reasons
-           * 1. When the speed is too fast, the car run out of the
-           *    track. We need a better way to detect that and reset
-           *    the simulator.
-           * 2. The steering angle should react differently when
-           *    speed is different, so using two PID controller
-           *    separately is really difficult to tweak the params.
+           * Twiddle
            */
           if (use_twiddle) {
             twiddle_err += cte * cte;
@@ -193,6 +179,14 @@ int main()
           }
 
           // DEBUG
+          //if (twiddle_num % 10 == 0) {
+          //  std::cout << " Angle: " << avg_angle
+          //            << " Taget: " << target_speed
+          //            << " Speed: " << speed
+          //            << " Throttle: " << throttle
+          //            << std::endl;
+          //}
+
           //std::cout << "CTE: " << cte << " Steering Value: " << steer_value << std::endl;
           //std::cout << "Angle: " << angle << " Speed: " << speed << " Target: " << target_speed << std::endl;
           //std::cout << "Throttle: " << throttle << std::endl;
